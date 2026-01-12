@@ -261,12 +261,6 @@ Cannot connect to the Docker daemon. Is the docker daemon running?
 
 ---
 
-## License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
 ## Contributing
 
 1. Fork the repository
