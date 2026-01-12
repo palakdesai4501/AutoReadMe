@@ -1,84 +1,122 @@
-version: '3.8'
+# AutoReadME Docker Compose Configuration
+# =========================================
+# This file orchestrates all services required to run the application locally.
+# Usage: docker-compose up --build
 
 services:
+  # ===========================================
+  # REDIS - Message Broker & Result Backend
+  # ===========================================
+  # Used by Celery for task queue management and storing job results.
+  # The worker publishes tasks here, and results are stored for polling.
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine                    # Lightweight Alpine-based Redis image
     container_name: autoreadme_redis
     ports:
-      - "6379:6379"
+      - "6379:6379"                          # Expose Redis port for local debugging
     volumes:
-      - redis_data:/data
+      - redis_data:/data                     # Persist Redis data across restarts
     networks:
       - autoreadme_network
-    healthcheck:
+    healthcheck:                             # Ensure Redis is ready before dependent services start
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ===========================================
+  # BACKEND - FastAPI REST API Server
+  # ===========================================
+  # Handles HTTP requests: job submission (/api/submit) and status polling (/api/status/{job_id}).
+  # Communicates with Redis to enqueue Celery tasks and fetch job status.
   backend:
     build:
       context: ./src/backend
       dockerfile: Dockerfile
     container_name: autoreadme_backend
     ports:
-      - "8000:8000"
+      - "8000:8000"                          # API available at http://localhost:8000
     environment:
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0       # Redis connection for Celery client
       - CELERY_BROKER_URL=redis://redis:6379/0
     depends_on:
       redis:
-        condition: service_healthy
+        condition: service_healthy           # Wait for Redis to be ready
     networks:
       - autoreadme_network
     volumes:
-      - ./src/backend:/app
+      - ./src/backend:/app                   # Hot-reload: code changes reflect immediately
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  # ===========================================
+  # WORKER - Celery Background Task Processor
+  # ===========================================
+  # Executes the LangGraph agent pipeline:
+  #   1. Clones GitHub repository
+  #   2. Indexes code files
+  #   3. Generates documentation using GPT-4o-mini
+  #   4. Compiles HTML output
+  #   5. Uploads to S3
   worker:
     build:
       context: ./src/worker
       dockerfile: Dockerfile
     container_name: autoreadme_worker
     environment:
+      # Redis connection for Celery broker and result backend
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # OpenAI API key for GPT-4o-mini documentation generation
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # AWS credentials for S3 upload (reads from host .env file)
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - S3_BUCKET=${S3_BUCKET:-}
     depends_on:
       redis:
-        condition: service_healthy
+        condition: service_healthy           # Wait for Redis to be ready
     networks:
       - autoreadme_network
     volumes:
-      - ./src/worker:/app
-      - ./data:/app/data
+      - ./src/worker:/app                    # Hot-reload: code changes reflect immediately
+      - ./data:/app/data                     # Persistent storage for logs/temp files
 
+  # ===========================================
+  # FRONTEND - React/Vite Development Server
+  # ===========================================
+  # Single-page application for user interaction.
+  # Submits repo URLs and displays real-time processing status.
   frontend:
     build:
       context: ./src/frontend
       dockerfile: Dockerfile
     container_name: autoreadme_frontend
     ports:
-      - "5173:5173"
+      - "5173:5173"                          # UI available at http://localhost:5173
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8000   # Backend API URL for axios requests
     depends_on:
-      - backend
+      - backend                              # Ensure backend is available
     networks:
       - autoreadme_network
     volumes:
-      - ./src/frontend:/app
-      - /app/node_modules
+      - ./src/frontend:/app                  # Hot-reload: code changes reflect immediately
+      - /app/node_modules                    # Preserve container's node_modules (don't override with host)
 
+# ===========================================
+# NETWORKS
+# ===========================================
+# Isolated bridge network for inter-container communication.
+# Services can reach each other by container name (e.g., redis, backend).
 networks:
   autoreadme_network:
     driver: bridge
 
+# ===========================================
+# VOLUMES
+# ===========================================
+# Named volume for Redis data persistence.
 volumes:
   redis_data:
-
