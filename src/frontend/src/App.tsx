@@ -1,3 +1,8 @@
+/**
+ * Main App Component.
+ * Orchestrates the documentation generation flow:
+ * 1. Hero (input) → 2. StatusTracker (progress) → 3. ResultCard (output)
+ */
 import { useState } from 'react';
 import { Hero } from './components/Hero';
 import { StatusTracker } from './components/StatusTracker';
@@ -10,6 +15,7 @@ function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { status, resultUrl, error, stage } = useJobStatus(jobId);
 
+  /** Submit repo URL to backend and start polling */
   const handleSubmit = async (url: string) => {
     setIsSubmitting(true);
     try {
@@ -23,6 +29,7 @@ function App() {
     }
   };
 
+  /** Reset state to allow new submission */
   const handleReset = () => {
     setJobId(null);
   };
@@ -30,10 +37,12 @@ function App() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#F5E7C6' }}>
       <div className="container mx-auto px-4 py-12 md:py-16">
+        {/* Initial state: show input form */}
         {!jobId && (
           <Hero onSubmit={handleSubmit} isLoading={isSubmitting} />
         )}
 
+        {/* Processing state: show progress tracker */}
         {jobId && status && status !== 'completed' && (
           <div className="space-y-8">
             <StatusTracker status={status} stage={stage} />
@@ -47,6 +56,7 @@ function App() {
           </div>
         )}
 
+        {/* Completed state: show result card */}
         {status === 'completed' && resultUrl && (
           <div className="space-y-6">
             <ResultCard resultUrl={resultUrl} />
@@ -62,6 +72,7 @@ function App() {
           </div>
         )}
 
+        {/* Failed state: show error with retry */}
         {status === 'failed' && (
           <div className="w-full max-w-2xl mx-auto">
             <div className="rounded-lg p-6 text-center" style={{ backgroundColor: '#FFE5E5', border: '1px solid #FF6D1F' }}>
@@ -82,4 +93,3 @@ function App() {
 }
 
 export default App;
-

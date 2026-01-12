@@ -1,3 +1,7 @@
+/**
+ * StatusTracker Component - Visual progress indicator.
+ * Shows 5 steps: Queued → Cloning → Analyzing → Uploading → Completed
+ */
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, Loader2, Clock, GitBranch, FileText, Upload } from 'lucide-react';
 import clsx from 'clsx';
@@ -7,6 +11,7 @@ interface StatusTrackerProps {
   stage?: string | null;
 }
 
+// Pipeline steps displayed in the progress bar
 const statusSteps = [
   { id: 'queued', label: 'Queued', icon: Clock },
   { id: 'cloning', label: 'Cloning', icon: GitBranch },
@@ -15,20 +20,13 @@ const statusSteps = [
   { id: 'completed', label: 'Completed', icon: CheckCircle2 },
 ];
 
+/** Map status/stage to step index (0-4) */
 const getCurrentStep = (status: string | null, stage: string | null | undefined): number => {
-  if (status === 'failed') {
-    return -1;
-  }
+  if (status === 'failed') return -1;
+  if (status === 'completed') return 4;
+  if (status === 'queued') return 0;
   
-  if (status === 'completed') {
-    return 4;
-  }
-  
-  if (status === 'queued') {
-    return 0;
-  }
-  
-  // For processing status, use stage to determine current step
+  // Map stage names to step indices
   if (status === 'processing' && stage) {
     switch (stage.toLowerCase()) {
       case 'starting':
@@ -40,45 +38,36 @@ const getCurrentStep = (status: string | null, stage: string | null | undefined)
       case 'uploading':
         return 3;
       default:
-        return 1; // Default to cloning if stage is unknown
+        return 1;
     }
   }
   
-  // Default to cloning if processing but no stage info
-  if (status === 'processing') {
-    return 1;
-  }
-  
-  return -1;
+  return status === 'processing' ? 1 : -1;
 };
 
 export const StatusTracker = ({ status, stage }: StatusTrackerProps) => {
   const currentStep = getCurrentStep(status, stage);
 
-  if (status === null) {
-    return null;
-  }
+  if (status === null) return null;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
       <div className="relative">
-        {/* Progress line */}
+        {/* Background progress line */}
         <div className="absolute top-6 left-0 right-0 h-0.5" style={{ backgroundColor: '#CCCCCC' }}>
+          {/* Animated fill based on current step */}
           <motion.div
             className="absolute top-0 left-0 h-full"
             style={{ backgroundColor: '#FF6D1F' }}
             initial={{ width: '0%' }}
             animate={{
-              width:
-                currentStep === -1
-                  ? '0%'
-                  : `${(currentStep / (statusSteps.length - 1)) * 100}%`,
+              width: currentStep === -1 ? '0%' : `${(currentStep / (statusSteps.length - 1)) * 100}%`,
             }}
             transition={{ duration: 0.5 }}
           />
         </div>
 
-        {/* Steps */}
+        {/* Step icons */}
         <div className="relative flex justify-between">
           {statusSteps.map((step, index) => {
             const isActive = index <= currentStep;
@@ -100,6 +89,7 @@ export const StatusTracker = ({ status, stage }: StatusTrackerProps) => {
                     color: isActive ? '#FFFFFF' : '#666666',
                   }}
                 >
+                  {/* Show spinner on current step during processing */}
                   {isCurrent && status === 'processing' ? (
                     <Loader2 className="w-6 h-6 animate-spin" />
                   ) : (
@@ -111,9 +101,7 @@ export const StatusTracker = ({ status, stage }: StatusTrackerProps) => {
                   animate={{ opacity: 1 }}
                   transition={{ delay: index * 0.1 + 0.2 }}
                   className="mt-2 text-sm font-medium"
-                  style={{
-                    color: isActive ? '#222222' : '#666666',
-                  }}
+                  style={{ color: isActive ? '#222222' : '#666666' }}
                 >
                   {step.label}
                 </motion.p>
@@ -123,7 +111,7 @@ export const StatusTracker = ({ status, stage }: StatusTrackerProps) => {
         </div>
       </div>
 
-      {/* Status message */}
+      {/* Status message below progress bar */}
       <AnimatePresence mode="wait">
         {status === 'processing' && (
           <motion.div
@@ -157,4 +145,3 @@ export const StatusTracker = ({ status, stage }: StatusTrackerProps) => {
     </div>
   );
 };
-

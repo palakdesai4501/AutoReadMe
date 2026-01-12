@@ -1,14 +1,17 @@
+"""
+Jobs API - Handles repository submission and status polling.
+Communicates with Celery to enqueue tasks and fetch results.
+"""
 import os
 import uuid
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from celery import Celery
 
 from app.schemas import RepoSubmitRequest, JobSubmitResponse, JobStatusResponse
-from fastapi import HTTPException
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
-# Celery client for enqueueing tasks
+# Celery client (not a worker, just for sending tasks)
 celery_client = Celery(
     "autoreadme_client",
     broker=os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0"),
@@ -27,13 +30,12 @@ celery_client.conf.update(
 @router.post("/submit", response_model=JobSubmitResponse)
 async def submit_repo(request: RepoSubmitRequest):
     """
-    Submit a GitHub repository URL for documentation generation.
-    
-    Returns a job_id that can be used to track the processing status.
+    Submit a GitHub repository for documentation generation.
+    Returns job_id for status polling.
     """
     job_id = str(uuid.uuid4())
     
-    # Enqueue the Celery task
+    # Send task to worker queue (task_id = job_id for easy lookup)
     celery_client.send_task(
         "process_repo_task",
         args=[job_id, request.github_url],
@@ -50,45 +52,29 @@ async def submit_repo(request: RepoSubmitRequest):
 @router.get("/status/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(job_id: str):
     """
-    Get the status of a documentation generation job.
-    
-    Returns the current status, result URL if completed, or error if failed.
+    Poll job status. Returns current stage, progress, or final result URL.
     """
     try:
-        # Get task result from Celery
         result = celery_client.AsyncResult(job_id)
-        
-        # Get the task state (this will trigger a backend check)
         state = result.state
         
-        # Check if task exists
         if state == 'PENDING':
-            # When a task is first queued, Celery may not have registered it in the
-            # result backend yet, so result.info might be None even though the task exists.
-            # Since tasks are created synchronously with specific IDs, PENDING state
-            # with None info typically means the task is queued but not yet picked up.
-            # Return "queued" status instead of 404 to avoid false negatives during polling.
-            return JobStatusResponse(
-                job_id=job_id,
-                status="queued",
-            )
+            # Task queued but not picked up yet
+            return JobStatusResponse(job_id=job_id, status="queued")
+        
         elif state == 'PROGRESS':
-            # Job is in progress - extract progress metadata
-            progress_info = result.info if result.info else {}
-            if isinstance(progress_info, dict):
-                return JobStatusResponse(
-                    job_id=job_id,
-                    status="processing",
-                    stage=progress_info.get("stage"),
-                    files_processed=progress_info.get("files_found"),
-                    documents_generated=progress_info.get("documents_generated"),
-                )
+            # Task in progress - extract stage info
+            progress_info = result.info or {}
             return JobStatusResponse(
                 job_id=job_id,
                 status="processing",
+                stage=progress_info.get("stage"),
+                files_processed=progress_info.get("files_found"),
+                documents_generated=progress_info.get("documents_generated"),
             )
+        
         elif state == 'SUCCESS':
-            # Job completed successfully
+            # Task completed - return result URL
             task_result = result.result
             if isinstance(task_result, dict):
                 return JobStatusResponse(
@@ -100,27 +86,17 @@ async def get_job_status(job_id: str):
                     result_url=task_result.get("result_url"),
                     error=task_result.get("error"),
                 )
-            else:
-                return JobStatusResponse(
-                    job_id=job_id,
-                    status="completed",
-                )
+            return JobStatusResponse(job_id=job_id, status="completed")
+        
         elif state == 'FAILURE':
-            # Job failed
             error_msg = str(result.info) if result.info else "Job failed"
-            return JobStatusResponse(
-                job_id=job_id,
-                status="failed",
-                error=error_msg,
-            )
+            return JobStatusResponse(job_id=job_id, status="failed", error=error_msg)
+        
         else:
-            # Unknown state - return as queued to be safe
-            return JobStatusResponse(
-                job_id=job_id,
-                status="queued",
-            )
+            # Unknown state - treat as queued
+            return JobStatusResponse(job_id=job_id, status="queued")
+            
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking job status: {str(e)}")
-

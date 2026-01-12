@@ -1,3 +1,7 @@
+/**
+ * Hero Component - Landing page with GitHub URL input form.
+ * Validates URL before submission and shows loading state.
+ */
 import { useState, FormEvent } from 'react';
 import { Github, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -11,6 +15,7 @@ export const Hero = ({ onSubmit, isLoading }: HeroProps) => {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
 
+  /** Validate that URL is a GitHub repository */
   const validateUrl = (url: string): boolean => {
     try {
       const urlObj = new URL(url);
@@ -44,6 +49,7 @@ export const Hero = ({ onSubmit, isLoading }: HeroProps) => {
       transition={{ duration: 0.5 }}
       className="w-full max-w-2xl mx-auto"
     >
+      {/* Title */}
       <div className="text-center mb-8">
         <h1 className="text-5xl font-bold mb-4" style={{ color: '#222222' }}>
           AutoRead<span style={{ color: '#FF6D1F' }}>ME</span>
@@ -53,6 +59,7 @@ export const Hero = ({ onSubmit, isLoading }: HeroProps) => {
         </p>
       </div>
 
+      {/* URL Input Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -84,6 +91,7 @@ export const Hero = ({ onSubmit, isLoading }: HeroProps) => {
           />
         </div>
 
+        {/* Validation Error */}
         {error && (
           <motion.p
             initial={{ opacity: 0 }}
@@ -95,6 +103,7 @@ export const Hero = ({ onSubmit, isLoading }: HeroProps) => {
           </motion.p>
         )}
 
+        {/* Submit Button */}
         <motion.button
           type="submit"
           disabled={isLoading}
@@ -121,4 +130,3 @@ export const Hero = ({ onSubmit, isLoading }: HeroProps) => {
     </motion.div>
   );
 };
-

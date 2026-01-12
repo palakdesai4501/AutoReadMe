@@ -1,3 +1,7 @@
+"""
+Celery Task Definitions.
+Contains the main process_repo_task that orchestrates documentation generation.
+"""
 import os
 import shutil
 from celery.utils.log import get_task_logger
@@ -8,13 +12,9 @@ logger = get_task_logger(__name__)
 
 
 def update_task_progress(task_id: str, stage: str, message: str, **extra):
-    """
-    Update task progress using the app backend directly.
-    This avoids task context issues in forked worker processes.
-    """
+    """Store progress update directly in Redis backend."""
     try:
         meta = {'stage': stage, 'message': message, **extra}
-        # Use app.backend.store_result directly to avoid task context issues
         app.backend.store_result(task_id, meta, 'PROGRESS')
         logger.info(f"[{task_id}] Stage: {stage} - {message}")
     except Exception as e:
@@ -24,34 +24,36 @@ def update_task_progress(task_id: str, stage: str, message: str, **extra):
 @app.task(name="process_repo_task", bind=True)
 def process_repo_task(self, job_id: str, github_url: str):
     """
-    Main Celery task to process a documentation job.
+    Main documentation generation task.
+    
+    Pipeline:
+    1. Clone repository
+    2. Index code files
+    3. Generate docs with GPT-4o-mini
+    4. Compile HTML
+    5. Upload to S3
     
     Args:
-        self: Task instance (for progress updates)
-        job_id: Unique identifier for the job
-        github_url: GitHub repository URL to process
+        job_id: Unique job identifier
+        github_url: GitHub repository URL
     
     Returns:
-        Dictionary with status and result
+        Dict with status, files_processed, documents_generated, result_url
     """
-    logger.info(f"Starting documentation generation for repo: {github_url} (Job ID: {job_id})")
+    logger.info(f"Starting job {job_id} for repo: {github_url}")
     
-    # Create progress callback that updates Celery task state
-    # Uses job_id directly since it equals task_id (set when enqueueing)
+    # Setup progress callback for agent nodes
     def progress_callback(stage: str, message: str, **extra):
         update_task_progress(job_id, stage, message, **extra)
     
-    # Set the global progress callback for agent nodes to use
     set_progress_callback(progress_callback)
-    
-    # Update task state to PROGRESS
     update_task_progress(job_id, 'starting', 'Initializing...')
     
     result = None
     local_path = None
     
     try:
-        # Initialize state
+        # Initialize agent state
         initial_state = {
             "repo_url": github_url,
             "job_id": job_id,
@@ -62,51 +64,44 @@ def process_repo_task(self, job_id: str, github_url: str):
             "final_url": "",
         }
         
-        # Run the LangGraph agent (nodes will update progress via callback)
+        # Run LangGraph agent pipeline
         result = agent_app.invoke(initial_state)
         local_path = result.get("local_path")
         
-        # Clean up temporary directory
+        # Cleanup temp directory
         if local_path and os.path.exists(local_path):
             try:
                 shutil.rmtree(local_path)
-                logger.info(f"Cleaned up temporary directory for job {job_id}")
+                logger.info(f"Cleaned up temp directory for job {job_id}")
             except Exception as e:
-                logger.warning(f"Failed to clean up temp directory: {str(e)}")
+                logger.warning(f"Failed to cleanup: {str(e)}")
         
-        logger.info(f"Documentation generation completed for job {job_id}")
+        logger.info(f"Job {job_id} completed successfully")
         
-        final_url = result.get("final_url", "")
-        logger.info(f"Final URL from result: {final_url}")
-        
-        response = {
+        return {
             "status": "completed",
             "job_id": job_id,
             "files_processed": len(result.get("files", [])),
             "documents_generated": len(result.get("documents", [])),
             "result": result.get("documents", []),
-            "result_url": final_url,
+            "result_url": result.get("final_url", ""),
         }
         
-        logger.info(f"Returning response with result_url: {response.get('result_url', 'NOT SET')}")
-        
-        return response
-        
     except Exception as e:
-        logger.error(f"Error processing job {job_id}: {str(e)}")
+        logger.error(f"Job {job_id} failed: {str(e)}")
         
-        # Update state to show error - use direct backend call
+        # Store failure state
         try:
             app.backend.store_result(job_id, {'error': str(e), 'stage': 'failed'}, 'FAILURE')
-        except Exception as update_err:
-            logger.warning(f"Failed to update failure state: {str(update_err)}")
+        except Exception:
+            pass
         
-        # Clean up on error
+        # Cleanup on error
         if local_path and os.path.exists(local_path):
             try:
                 shutil.rmtree(local_path)
-            except Exception as cleanup_error:
-                logger.warning(f"Failed to clean up temp directory on error: {str(cleanup_error)}")
+            except Exception:
+                pass
         
         return {
             "status": "failed",
@@ -114,5 +109,4 @@ def process_repo_task(self, job_id: str, github_url: str):
             "error": str(e),
         }
     finally:
-        # Clear the progress callback
         set_progress_callback(None)

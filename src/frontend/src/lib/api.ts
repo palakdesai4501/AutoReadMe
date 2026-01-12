@@ -1,13 +1,18 @@
-import axios, { AxiosError } from 'axios';
+/**
+ * API Client - Axios wrapper for backend communication.
+ * Handles job submission and status polling.
+ */
+import axios from 'axios';
 
+// Backend URL from env or default to localhost
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const apiClient = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
+
+// --- Type Definitions ---
 
 export interface SubmitRepoResponse {
   job_id: string;
@@ -26,6 +31,9 @@ export interface JobStatusResponse {
   error?: string;
 }
 
+// --- API Functions ---
+
+/** Submit a GitHub repo URL for documentation generation */
 export const submitRepo = async (url: string): Promise<SubmitRepoResponse> => {
   try {
     const response = await apiClient.post<SubmitRepoResponse>('/api/submit', {
@@ -40,22 +48,19 @@ export const submitRepo = async (url: string): Promise<SubmitRepoResponse> => {
   }
 };
 
+/** Poll job status by ID */
 export const checkStatus = async (jobId: string): Promise<JobStatusResponse> => {
   try {
     const response = await apiClient.get<JobStatusResponse>(`/api/status/${jobId}`);
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
+      // 404 = job not registered yet, treat as queued
       if (error.response?.status === 404) {
-        // Job not found - return queued status
-        return {
-          job_id: jobId,
-          status: 'queued',
-        };
+        return { job_id: jobId, status: 'queued' };
       }
       throw new Error(error.response?.data?.detail || 'Failed to check job status');
     }
     throw error;
   }
 };
-

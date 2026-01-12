@@ -1,3 +1,7 @@
+/**
+ * ResultCard Component - Displays success state with documentation link.
+ * Shows S3 presigned URL that expires in 7 days.
+ */
 import { motion } from 'framer-motion';
 import { ExternalLink, FileText, CheckCircle2 } from 'lucide-react';
 
@@ -20,6 +24,7 @@ export const ResultCard = ({
       className="w-full max-w-2xl mx-auto rounded-xl p-6 shadow-xl"
       style={{ backgroundColor: '#FFFFFF', border: '1px solid #222222' }}
     >
+      {/* Success header */}
       <div className="flex items-start gap-4 mb-6">
         <div className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: '#E8F5E9' }}>
           <CheckCircle2 className="w-6 h-6" style={{ color: '#10B981' }} />
@@ -36,6 +41,7 @@ export const ResultCard = ({
         </div>
       </div>
 
+      {/* CTA button */}
       <div className="space-y-3">
         <motion.a
           href={resultUrl}
@@ -60,4 +66,3 @@ export const ResultCard = ({
     </motion.div>
   );
 };
-

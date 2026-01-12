@@ -1,2 +1,1 @@
-# API routers will be imported here
-
+"""API routers package."""
